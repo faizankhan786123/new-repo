@@ -1,0 +1,1311 @@
+/*
+---------------------------------------------------------------------------------------------------------
+                  NEWGEN SOFTWARE TECHNOLOGIES LIMITED
+
+Group                   : Application - Projects
+Project/Product			: RAK BPM
+Application				: RAK BPM Utility
+Module					: DAC CBS
+File Name				: DACCBSIntegration.java
+Author 					: Sivakumar P
+Date (DD/MM/YYYY)		: 26/11/2019
+
+---------------------------------------------------------------------------------------------------------
+                 	CHANGE HISTORY
+---------------------------------------------------------------------------------------------------------
+
+Problem No/CR No        Change Date           Changed By             Change Description
+---------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------
+*/
+
+
+package com.newgen.NBTL.CBS;
+
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.Socket;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.HashMap;
+
+//import com.newgen.NBTL.Memopad.CustomerBean;
+//import com.newgen.NBTL.Memopad.NBTL_Memopad;
+//import com.newgen.NBTL.Memopad.NBTL_MemopadIntegration;
+//import com.newgen.NBTL.Memopad.NBTL_Memopad_Log;
+import com.newgen.NBTL.CBS.NBTLCBS;
+import com.newgen.common.CommonConnection;
+import com.newgen.common.CommonMethods;
+import com.newgen.omni.jts.cmgr.XMLParser;
+import com.newgen.wfdesktop.xmlapi.WFCallBroker;
+
+public class NBTLCBSIntegration {
+
+	
+	private String XMLLOG_HISTORY_TABLE = "NG_NBTL_XMLLOG_HISTORY";
+	private String NBTL_EXTTABLE = "RB_NBTL_EXTTABLE";
+	
+	Socket socket=null;
+	String socketServerIP="";
+	int socketServerPort=0;
+	OutputStream out = null;
+	InputStream socketInputStream = null;
+	DataOutputStream dout = null;
+	DataInputStream din = null;
+	String outputResponse = null;
+	String inputRequest = null;	
+	String inputMessageID = null;
+	String CustomerID="";
+	
+	public ResponseBean NBTL_Memopad_Integration(String cabinetName, String sessionID,String sJtsIp, String sJtsPort , String smsPort, String wi_name,
+			int socket_connection_timeout,int integrationWaitTime,String strCorporateCIF,String MemoPadText,
+			HashMap<String, String> socketDetailsMap, String activityName) throws Exception
+	{
+		ResponseBean objResponseBean=new ResponseBean();	
+				
+		String MemopadinputXML = "<EE_EAI_MESSAGE>" +
+								//"\n\t<ProcessName>NBTL</ProcessName>"+
+								"\n\t<EE_EAI_HEADER>"+
+								"\n\t\t<MsgFormat>MEMOPAD_MAINTENANCE_REQ</MsgFormat>"+
+								"\n\t\t<MsgVersion>0001</MsgVersion>"+
+								"\n\t\t<RequestorChannelId>BPM</RequestorChannelId>"+
+								"\n\t\t<RequestorUserId>RAKUSER</RequestorUserId>" +
+								"\n\t\t<RequestorLanguage>E</RequestorLanguage>" +
+								"\n\t\t<RequestorSecurityInfo>secure</RequestorSecurityInfo>" +
+								"\n\t\t<ReturnCode>911</ReturnCode>" +
+								"\n\t\t<ReturnDesc>Issuer Timed Out</ReturnDesc>" +
+								"\n\t\t<MessageId>UniqueMessageId123</MessageId>" +
+								"\n\t\t<Extra1>REQ||SHELL.JOHN</Extra1>" +
+								"\n\t\t<Extra2>YYYY-MM-DDThh:mm:ss.mmm+hh:mm</Extra2>" +
+								"\n\t</EE_EAI_HEADER>" +
+								"\n\t<MemopadMaintenanceReq>" +
+								"\n\t\t<BankId>RAK</BankId>" + 
+								"\n\t\t<CIFID>"+strCorporateCIF+"</CIFID>" +
+								//"\n\t\t<ACNumber>"+AccountNo+"</ACNumber>" + 
+								"\n\t\t<Operation>A</Operation>" +
+								"\n\t\t<Topic>TL Expiry</Topic>" +
+								"\n\t\t<FuncCode>FT</FuncCode>" +
+								"\n\t\t<Intent>F</Intent>" +
+								"\n\t\t<Security>P</Security>" +
+								"\n\t\t<MemoText>" + MemoPadText + "</MemoText>" +
+								"\n\t\t<ExceptionCode></ExceptionCode>" +
+								"\n\t\t<FreeField1></FreeField1>" +
+								"\n\t\t<FreeField2></FreeField2>" +
+								"\n\t\t<FreeField3></FreeField3>" +
+								"\n\t</MemopadMaintenanceReq>" +
+								"\n</EE_EAI_MESSAGE>";
+
+				NBTLCBSLog.NBTLCBSLogger.debug("Input XML for NBTL Memopad is "+MemopadinputXML);
+
+				try
+				{
+					NBTLCBSLog.NBTLCBSLogger.debug("Session Id is "+sessionID);
+
+					socketServerIP=socketDetailsMap.get("SocketServerIP");
+					NBTLCBSLog.NBTLCBSLogger.debug("Socket server IP is "+socketServerIP);
+
+					socketServerPort=Integer.parseInt(socketDetailsMap.get("SocketServerPort"));
+					NBTLCBSLog.NBTLCBSLogger.debug("Socket server port is "+socketServerPort);
+
+					if(!("".equals(socketServerIP)) && socketServerIP!=null && !(socketServerPort==0))
+					{
+						socket=new Socket(socketServerIP,socketServerPort);
+						socket.setSoTimeout(socket_connection_timeout*1000);
+						out = socket.getOutputStream();
+						socketInputStream = socket.getInputStream();
+						dout = new DataOutputStream(out);
+						din = new DataInputStream(socketInputStream);
+
+						NBTLCBSLog.NBTLCBSLogger.debug("Data output stream is "+dout);
+						NBTLCBSLog.NBTLCBSLogger.debug("Data input stream is "+din);
+						outputResponse="";
+						inputRequest=getRequestXML(cabinetName, sessionID, wi_name, activityName, CommonConnection.getUsername(), new StringBuilder(MemopadinputXML));
+
+						NBTLCBSLog.NBTLCBSLogger.debug("Input MQ XML for Customer creation is "+inputRequest);
+
+						if (inputRequest != null && inputRequest.length() > 0)
+						{
+							int inputRequestLen = inputRequest.getBytes("UTF-16LE").length;
+							NBTLCBSLog.NBTLCBSLogger.debug("RequestLen: "+inputRequestLen + "");
+							inputRequest = inputRequestLen + "##8##;" + inputRequest;
+							NBTLCBSLog.NBTLCBSLogger.debug("InputRequest"+"Input Request Bytes : "+ inputRequest.getBytes("UTF-16LE"));
+							dout.write(inputRequest.getBytes("UTF-16LE"));dout.flush();
+						}
+						byte[] readBuffer = new byte[500];
+						int num = din.read(readBuffer);
+
+						if (num > 0)
+						{
+
+							byte[] arrayBytes = new byte[num];
+							System.arraycopy(readBuffer, 0, arrayBytes, 0, num);
+							outputResponse = outputResponse+ new String(arrayBytes, "UTF-16LE");
+							inputMessageID = outputResponse;
+							NBTLCBSLog.NBTLCBSLogger.debug("OutputResponse: "+outputResponse);
+
+							if(!"".equalsIgnoreCase(outputResponse))
+								outputResponse = getResponseXML(cabinetName,sJtsIp,sJtsPort,sessionID,
+										wi_name,outputResponse,integrationWaitTime );
+							if(outputResponse.contains("&lt;"))
+							{
+								outputResponse=outputResponse.replaceAll("&lt;", "<");
+								outputResponse=outputResponse.replaceAll("&gt;", ">");
+							}
+						}
+						socket.close();
+
+						outputResponse = outputResponse.replaceAll("</MessageId>","</MessageId>/n<InputMessageId>"+inputMessageID+"</InputMessageId>");
+						XMLParser sXMLParser=new XMLParser(outputResponse);
+						
+						String return_code = sXMLParser.getValueOf("ReturnCode");
+						String return_desc = sXMLParser.getValueOf("ReturnDesc");
+						if (return_desc.trim().equalsIgnoreCase(""))
+							return_desc = sXMLParser.getValueOf("Description");
+						
+						if("0000".equalsIgnoreCase(return_code))
+						{
+							objResponseBean.setMemopadReturnCode("Success");
+							objResponseBean.setMemoIntegrationDecision("Success");
+							objResponseBean.setMemoMWErrorCode(return_code);
+							objResponseBean.setMemoMWErrorDesc(return_desc);
+							objResponseBean.setMemoNBTLRequestId(sXMLParser.getValueOf("RequestId"));
+						}
+						else
+						{
+							objResponseBean.setMemopadReturnCode("Failure");
+							objResponseBean.setMemoIntegrationDecision("Failure");
+							objResponseBean.setMemoMWErrorCode(return_code);
+							objResponseBean.setMemoMWErrorDesc(return_desc);
+						}
+						NBTLCBSLog.NBTLCBSLogger.debug("Response XML for Memopad is "+outputResponse);
+					}
+				}
+				catch(Exception e)
+				{
+					NBTLCBSLog.NBTLCBSLogger.error("The Exception in Memopad is "+e.getMessage());
+				}
+		return objResponseBean;	
+	}
+	
+	public ResponseBean NBTLCBS_CifUpdateIntegration(String cabinetName, String sessionID,String sJtsIp, String sJtsPort , String smsPort, String wi_name,
+			int socket_connection_timeout,int integrationWaitTime,String strCorporateCIF,String strToBeTLNo,String strToBeExpiryDate,String KYC_ReviewDate,
+			String INTEGRATION_ERROR_RECEIVED,HashMap<String, String> socketDetailsMap, String strWi_name,String activityName,int ThresholdYear,int year,String PrevOPSReviewDec) throws Exception
+	{
+				ResponseBean objResponseBean=new ResponseBean();
+				String CIFUpdateinputXML = "<EE_EAI_MESSAGE>" +
+								"\n\t<EE_EAI_HEADER>"+
+								"\n\t\t<MsgFormat>CUSTOMER_UPDATE_REQ</MsgFormat>"+
+								"\n\t\t<MsgVersion>001</MsgVersion>"+
+								"\n\t\t<RequestorChannelId>BPM</RequestorChannelId>"+
+								"\n\t\t<RequestorUserId>RAKUSER</RequestorUserId>" +
+								"\n\t\t<RequestorLanguage>E</RequestorLanguage>" +
+								"\n\t\t<RequestorSecurityInfo>secure</RequestorSecurityInfo>" +
+								"\n\t\t<ReturnCode>911</ReturnCode>" +
+								"\n\t\t<ReturnDesc>Issuer Timed Out</ReturnDesc>" +
+								"\n\t\t<MessageId>Test_CU_0031</MessageId>" +
+								"\n\t\t<Extra1>REQ||SHELL.dfgJOHN</Extra1>" +
+								"\n\t\t<Extra2>YYYY-MM-DDThh:mm:ss.mmm+hh:mm</Extra2>" +
+								"\n\t</EE_EAI_HEADER>" +
+								"\n\t<CustomerDetailsUpdateReq>" +
+								"\n\t\t<BankId>RAK</BankId>" + 
+								"\n\t\t<CIFId>"+strCorporateCIF+"</CIFId>" +
+								"\n\t\t<RetCorpFlag>C</RetCorpFlag>" + 
+								"\n\t\t<ActionRequired>U</ActionRequired>";
+								//"\n\t\t<Email>"+strEmail+"</Email>" +
+								
+				String append = "";
+				if(year > ThresholdYear)
+				{
+					if(!"Success".equalsIgnoreCase(INTEGRATION_ERROR_RECEIVED))
+					{
+						append +="\n\t\t<RtlAddnlDet>" +
+								"\n\t\t\t<KYCDetails>" +
+								"\n\t\t\t\t<KYCReviewdate>"+KYC_ReviewDate+"</KYCReviewdate>" +
+								"\n\t\t\t</KYCDetails>" +
+								"\n\t\t</RtlAddnlDet>";
+					}
+					append +="\n\t</CustomerDetailsUpdateReq>" +
+							"\n</EE_EAI_MESSAGE>";
+				}else
+				{
+					append ="\n\t\t<DocDet>" + 
+							"\n\t\t\t<DocType>TDLIC</DocType>" + 
+							"\n\t\t\t<DocIsVerified>Y</DocIsVerified>" + 
+							"\n\t\t\t<DocNo>"+strToBeTLNo+"</DocNo>"+
+							"\n\t\t\t<DocExpDate>"+strToBeExpiryDate+"</DocExpDate>";
+					if("Approve with Profile Change".equalsIgnoreCase(PrevOPSReviewDec)){
+							if("Success".equalsIgnoreCase(INTEGRATION_ERROR_RECEIVED))
+							{
+								append +="\n\t\t\t<DocUpdateStatus>APR</DocUpdateStatus>";
+							}else
+							{
+								append +="\n\t\t\t<DocUpdateStatus>HFA</DocUpdateStatus>";
+							}
+					}
+							append +="\n\t\t</DocDet>";
+							if(!"Success".equalsIgnoreCase(INTEGRATION_ERROR_RECEIVED))
+							{
+								append +="\n\t\t<RtlAddnlDet>" +
+										"\n\t\t\t<KYCDetails>" +
+										"\n\t\t\t\t<KYCReviewdate>"+KYC_ReviewDate+"</KYCReviewdate>" +
+										"\n\t\t\t</KYCDetails>" +
+										"\n\t\t</RtlAddnlDet>";
+							}
+							append +="\n\t</CustomerDetailsUpdateReq>" +
+							"\n</EE_EAI_MESSAGE>";
+				}
+				CIFUpdateinputXML += append;
+				NBTLCBSLog.NBTLCBSLogger.debug("Input XML for NBTL CIF Update is "+CIFUpdateinputXML);
+
+				try
+				{
+					NBTLCBSLog.NBTLCBSLogger.debug("Session Id is "+sessionID);
+
+					socketServerIP=socketDetailsMap.get("SocketServerIP");
+					NBTLCBSLog.NBTLCBSLogger.debug("Socket server IP is "+socketServerIP);
+
+					socketServerPort=Integer.parseInt(socketDetailsMap.get("SocketServerPort"));
+					NBTLCBSLog.NBTLCBSLogger.debug("Socket server port is "+socketServerPort);
+
+					if(!("".equals(socketServerIP)) && socketServerIP!=null && !(socketServerPort==0))
+					{
+						socket=new Socket(socketServerIP,socketServerPort);
+						socket.setSoTimeout(socket_connection_timeout*1000);
+						out = socket.getOutputStream();
+						socketInputStream = socket.getInputStream();
+						dout = new DataOutputStream(out);
+						din = new DataInputStream(socketInputStream);
+
+						NBTLCBSLog.NBTLCBSLogger.debug("Data output stream is "+dout);
+						NBTLCBSLog.NBTLCBSLogger.debug("Data input stream is "+din);
+						outputResponse="";
+						inputRequest=getRequestXML(cabinetName, sessionID, wi_name, activityName, CommonConnection.getUsername(), new StringBuilder(CIFUpdateinputXML));
+
+						NBTLCBSLog.NBTLCBSLogger.debug("Input MQ XML for Customer creation is "+inputRequest);
+
+						if (inputRequest != null && inputRequest.length() > 0)
+						{
+							int inputRequestLen = inputRequest.getBytes("UTF-16LE").length;
+							NBTLCBSLog.NBTLCBSLogger.debug("RequestLen: "+inputRequestLen + "");
+							inputRequest = inputRequestLen + "##8##;" + inputRequest;
+							NBTLCBSLog.NBTLCBSLogger.debug("InputRequest"+"Input Request Bytes : "+ inputRequest.getBytes("UTF-16LE"));
+							dout.write(inputRequest.getBytes("UTF-16LE"));dout.flush();
+						}
+						byte[] readBuffer = new byte[500];
+						int num = din.read(readBuffer);
+
+						if (num > 0)
+						{
+
+							byte[] arrayBytes = new byte[num];
+							System.arraycopy(readBuffer, 0, arrayBytes, 0, num);
+							outputResponse = outputResponse+ new String(arrayBytes, "UTF-16LE");
+							inputMessageID = outputResponse;
+							NBTLCBSLog.NBTLCBSLogger.debug("OutputResponse: "+outputResponse);
+
+							if(!"".equalsIgnoreCase(outputResponse))
+								outputResponse = getResponseXML(cabinetName,sJtsIp,sJtsPort,sessionID,
+										wi_name,outputResponse,integrationWaitTime );
+							if(outputResponse.contains("&lt;"))
+							{
+								outputResponse=outputResponse.replaceAll("&lt;", "<");
+								outputResponse=outputResponse.replaceAll("&gt;", ">");
+							}
+							NBTLCBSLog.NBTLCBSLogger.debug("OutputResponse: "+outputResponse);
+						}
+						socket.close();
+
+						outputResponse = outputResponse.replaceAll("</MessageId>","</MessageId>/n<InputMessageId>"+inputMessageID+"</InputMessageId>");
+						XMLParser sXMLParser= new XMLParser(outputResponse);
+						
+						String return_code = sXMLParser.getValueOf("ReturnCode");
+						String return_desc = sXMLParser.getValueOf("ReturnDesc");
+						if (return_desc.trim().equalsIgnoreCase(""))
+						{
+							return_desc = sXMLParser.getValueOf("Description");
+						}
+						NBTLCBSLog.NBTLCBSLogger.debug("return_code: "+return_code);
+						if(return_desc.trim().contains("CIF UNDER VERIFICATION"))
+						{
+							String columnNames="CIF_UnderVerification";
+							String columnValues="'Y'";
+							String sWhereClause ="WINAME ='"+strWi_name+"' ";
+							String apUpdateInput = CommonMethods.apUpdateInput(cabinetName,sessionID,NBTL_EXTTABLE,columnNames,columnValues,
+									sWhereClause);
+							NBTLCBSLog.NBTLCBSLogger.debug("APUpdate InputXML: "+apUpdateInput);
+
+							String apUpdateOutputXML=NBTLCBS.WFNGExecute(apUpdateInput,sJtsIp,sJtsPort,1);
+							NBTLCBSLog.NBTLCBSLogger.debug("APUpdate OutputXML: "+apUpdateOutputXML);
+
+							XMLParser apUpdateOutputXMLxmlParser= new XMLParser(apUpdateOutputXML);
+							String apUpdateOutputXMLMainCode = apUpdateOutputXMLxmlParser.getValueOf("MainCode");
+							NBTLCBSLog.NBTLCBSLogger.debug("MainCode: "+apUpdateOutputXMLMainCode);
+							
+							if(apUpdateOutputXMLMainCode.equalsIgnoreCase("0"))
+							{
+								NBTLCBSLog.NBTLCBSLogger.debug("CIF_UnderVerification updated in database");
+
+							}
+							objResponseBean.setCifUpdateReturnCode("CIF_UnderVerification");
+							objResponseBean.setIntegrationDecision("CIF_UnderVerification");
+							objResponseBean.setMWErrorCode(return_code);
+							objResponseBean.setMWErrorDesc(return_desc);
+						}
+						 else if("0000".equalsIgnoreCase(return_code))
+						{
+							objResponseBean.setCifUpdateReturnCode("Success");
+							objResponseBean.setIntegrationDecision("Success");
+							objResponseBean.setMWErrorCode(return_code);
+							objResponseBean.setMWErrorDesc(return_desc);
+							objResponseBean.setNBTLRequestId(sXMLParser.getValueOf("RequestId"));
+						}
+						else
+						{
+							objResponseBean.setCifUpdateReturnCode("Failure");
+							objResponseBean.setIntegrationDecision("Failure");
+							objResponseBean.setMWErrorCode(return_code);
+							objResponseBean.setMWErrorDesc(return_desc);
+						}
+						NBTLCBSLog.NBTLCBSLogger.debug("Response XML for Cif Update is "+outputResponse);
+					}
+				}
+				catch(Exception e)
+				{
+					NBTLCBSLog.NBTLCBSLogger.error("The Exception in Cif Update is "+e.getMessage());
+				}
+		return objResponseBean;	
+	}
+		
+	private String getRequestXML(String cabinetName, String sessionID,
+			String wi_name, String ws_name, String userName, StringBuilder final_XML)
+	{
+		StringBuffer strBuff = new StringBuffer();
+		strBuff.append("<APMQPUTGET_Input>");
+		strBuff.append("<SessionId>" + sessionID + "</SessionId>");
+		strBuff.append("<EngineName>" + cabinetName + "</EngineName>");
+		strBuff.append("<XMLHISTORY_TABLENAME>"+XMLLOG_HISTORY_TABLE+"</XMLHISTORY_TABLENAME>");
+		strBuff.append("<WI_NAME>" + wi_name + "</WI_NAME>");
+		strBuff.append("<WS_NAME>" + ws_name + "</WS_NAME>");
+		strBuff.append("<USER_NAME>" + userName + "</USER_NAME>");
+		strBuff.append("<MQ_REQUEST_XML>");
+		strBuff.append(final_XML);
+		strBuff.append("</MQ_REQUEST_XML>");
+		strBuff.append("</APMQPUTGET_Input>");
+		NBTLCBSLog.NBTLCBSLogger.debug("GetRequestXML: "+ strBuff.toString());
+		return strBuff.toString();
+	}
+	
+
+	private String getResponseXML(String cabinetName,String sJtsIp,String iJtsPort, String
+			sessionID, String wi_name,String message_ID, int integrationWaitTime)
+	{
+
+		String outputResponseXML="";
+		try
+		{
+			String QueryString = "select OUTPUT_XML from "+XMLLOG_HISTORY_TABLE+" with (nolock) where " +
+					"MESSAGE_ID ='"+message_ID+"' and WI_NAME = '"+wi_name+"'";
+
+			String responseInputXML =CommonMethods.apSelectWithColumnNames(QueryString, cabinetName, sessionID);
+			NBTLCBSLog.NBTLCBSLogger.debug("Response APSelect InputXML: "+responseInputXML);
+
+			int Loop_count=0;
+			do
+			{
+				String responseOutputXML=NBTLCBS.WFNGExecute(responseInputXML,sJtsIp,iJtsPort,1);
+				NBTLCBSLog.NBTLCBSLogger.debug("Response APSelect OutputXML: "+responseOutputXML);
+
+			    XMLParser xmlParserSocketDetails= new XMLParser(responseOutputXML);
+			    String responseMainCode = xmlParserSocketDetails.getValueOf("MainCode");
+			    NBTLCBSLog.NBTLCBSLogger.debug("ResponseMainCode: "+responseMainCode);
+
+			    int responseTotalRecords = Integer.parseInt(xmlParserSocketDetails.getValueOf("TotalRetrieved"));
+			    NBTLCBSLog.NBTLCBSLogger.debug("ResponseTotalRecords: "+responseTotalRecords);
+			    if (responseMainCode.equals("0") && responseTotalRecords > 0)
+				{
+					String responseXMLData=xmlParserSocketDetails.getNextValueOf("Record");
+					responseXMLData =responseXMLData.replaceAll("[ ]+>",">").replaceAll("<[ ]+", "<");
+
+	        		XMLParser xmlParserResponseXMLData = new XMLParser(responseXMLData);
+
+	        		outputResponseXML=xmlParserResponseXMLData.getValueOf("OUTPUT_XML");
+	        		NBTLCBSLog.NBTLCBSLogger.debug("OutputResponseXML: "+outputResponseXML);
+
+	        		if("".equalsIgnoreCase(outputResponseXML)){
+	        			outputResponseXML="Error";
+	    			}
+	        		break;
+				}
+			    Loop_count++;
+			    Thread.sleep(1000);
+			}
+			while(Loop_count<integrationWaitTime);
+
+		}
+		catch(Exception e)
+		{
+			NBTLCBSLog.NBTLCBSLogger.error("Exception occurred in outputResponseXML" + e.getMessage());
+			NBTLCBSLog.NBTLCBSLogger.error("Exception occurred in outputResponseXML" + e.getStackTrace());
+			outputResponseXML="Error";
+		}
+		return outputResponseXML;
+	}
+
+	public String formatDate(String inDate, String fromFormat, String ToFormat) {
+		SimpleDateFormat inSDF = new SimpleDateFormat(fromFormat); //"mm/dd/yyyy"
+		SimpleDateFormat outSDF = new SimpleDateFormat(ToFormat); //"yyyy-MM-dd"
+
+		String outDate = "";
+		if (inDate != null) {
+			try {
+				Date date = inSDF.parse(inDate);
+				outDate = outSDF.format(date);
+			} catch (ParseException e) {
+				System.out.println("Unable to format date: " + inDate + e.getMessage());
+				e.printStackTrace();
+			}
+		}
+		return outDate;
+  }
+	
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*
+---------------------------------------------------------------------------------------------------------
+                  NEWGEN SOFTWARE TECHNOLOGIES LIMITED
+
+Group                   : Application - Projects
+Project/Product			: RAK BPM
+Application				: RAK BPM Utility
+Module					: DAC CBS
+File Name				: DACCBS.java
+Author 					: Sivakumar P
+Date (DD/MM/YYYY)		: 26/07/2019
+
+---------------------------------------------------------------------------------------------------------
+                 	CHANGE HISTORY
+---------------------------------------------------------------------------------------------------------
+
+Problem No/CR No        Change Date           Changed By             Change Description
+---------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------
+*/
+
+package com.newgen.NBTL.CBS;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.io.Writer;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Properties;
+
+import com.newgen.NBTL.Hold.NBTLHoldLog;
+import com.newgen.common.CommonConnection;
+import com.newgen.common.CommonMethods;
+import com.newgen.omni.jts.cmgr.XMLParser;
+import com.newgen.omni.wf.util.app.NGEjbClient;
+import com.newgen.wfdesktop.xmlapi.WFCallBroker;
+
+public class NBTLCBS implements Runnable {
+	private String NBTL_WIHISTORY = "USR_0_NBTL_WIHISTORY";
+
+	private static NGEjbClient ngEjbClientNBTLCBS;
+	static Map<String, String> NBTLCBSConfigParamMap = new HashMap<String, String>();
+	private String NBTL_EXTTABLE = "RB_NBTL_EXTTABLE";
+	private final String ws_name = "Core_System_Update";
+	private String entryDateTime = "";
+	private String strIntegrationErrCode = "";
+	private String strIntegrationErrRemarks = "";
+	private String attributesTag = "";
+	private String getWorkItemInputXML = "";
+	private String getWorkItemOutputXml = "";
+	private XMLParser xmlParserGetWorkItem = new XMLParser();
+	private String getWorkItemMainCode = "";
+	private String emailBody = "";
+	private String mailFrom = "";
+	private String mailSubject = "";
+	private String activityName = "";
+	private int ThresholdYear = 0;
+	NBTLCBSIntegration objNBTLCBSIntegration = new NBTLCBSIntegration();
+
+	public void run() {
+		String sessionID = "";
+		String cabinetName = "";
+		String jtsIP = "";
+		String jtsPort = "";
+		String smsPort = "";
+		String queueID = "";
+		int integrationWaitTime = 0;
+		int sleepIntervalInMin = 0;
+
+		try {
+			NBTLCBSLog.setLogger();
+			ngEjbClientNBTLCBS = NGEjbClient.getSharedInstance();
+
+			NBTLCBSLog.NBTLCBSLogger.debug("Connecting to Cabinet.");
+
+			int configReadStatus = readConfig();
+
+			NBTLCBSLog.NBTLCBSLogger.debug("configReadStatus " + configReadStatus);
+			if (configReadStatus != 0) {
+				NBTLCBSLog.NBTLCBSLogger.error("Could not Read Config Properties [NBTL CBS]");
+				return;
+			}
+
+			cabinetName = CommonConnection.getCabinetName();
+			NBTLCBSLog.NBTLCBSLogger.debug("Cabinet Name: " + cabinetName);
+
+			jtsIP = CommonConnection.getJTSIP();
+			NBTLCBSLog.NBTLCBSLogger.debug("JTSIP: " + jtsIP);
+
+			jtsPort = CommonConnection.getJTSPort();
+			NBTLCBSLog.NBTLCBSLogger.debug("JTSPORT: " + jtsPort);
+
+			smsPort = CommonConnection.getsSMSPort();
+			NBTLCBSLog.NBTLCBSLogger.debug("SMSPort: " + smsPort);
+
+			queueID = NBTLCBSConfigParamMap.get("queueID");
+			NBTLCBSLog.NBTLCBSLogger.debug("QueueID: " + queueID);
+
+			integrationWaitTime = Integer.parseInt(NBTLCBSConfigParamMap.get("INTEGRATION_WAIT_TIME"));
+			NBTLCBSLog.NBTLCBSLogger.debug("IntegrationWaitTime: " + integrationWaitTime);
+
+			sleepIntervalInMin = Integer.parseInt(NBTLCBSConfigParamMap.get("SleepIntervalInMin"));
+			NBTLCBSLog.NBTLCBSLogger.debug("SleepIntervalInMin: " + sleepIntervalInMin);
+
+			ThresholdYear = Integer.parseInt(NBTLCBSConfigParamMap.get("ThresholdYear"));
+			NBTLCBSLog.NBTLCBSLogger.debug("ThresholdYear: " + ThresholdYear);
+
+			sessionID = CommonConnection.getSessionID(NBTLCBSLog.NBTLCBSLogger, false);
+			if (sessionID.trim().equalsIgnoreCase("")) {
+				NBTLCBSLog.NBTLCBSLogger.debug("Could Not Connect to Server!");
+			} else {
+				HashMap<String, String> socketDetailsMap = socketConnectionDetails(cabinetName, jtsIP, jtsPort,
+						sessionID);
+				while (true) {
+					NBTLCBSLog.setLogger();
+					NBTLCBSLog.NBTLCBSLogger.debug("NBTL CBS....");
+					startNBTLCBSUtility(cabinetName, jtsIP, jtsPort, smsPort, queueID, sleepIntervalInMin,
+							integrationWaitTime, sessionID, socketDetailsMap);
+					Thread.sleep(sleepIntervalInMin * 60 * 1000);
+				}
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+			NBTLCBSLog.NBTLCBSLogger.error("Exception Occurred in NBTL CBS : " + e);
+			final Writer result = new StringWriter();
+			final PrintWriter printWriter = new PrintWriter(result);
+			e.printStackTrace(printWriter);
+			NBTLCBSLog.NBTLCBSLogger.error("Exception Occurred in NBTL CBS : " + result);
+		}
+	}
+
+	private int readConfig() {
+		Properties p = null;
+		try {
+
+			p = new Properties();
+			p.load(new FileInputStream(new File(System.getProperty("user.dir") + File.separator + "ConfigFiles"
+					+ File.separator + "NBTL_CBS_Config.properties")));
+
+			Enumeration<?> names = p.propertyNames();
+
+			while (names.hasMoreElements()) {
+				String name = (String) names.nextElement();
+				NBTLCBSConfigParamMap.put(name, p.getProperty(name));
+			}
+		} catch (Exception e) {
+
+			return -1;
+		}
+		return 0;
+	}
+
+	private void startNBTLCBSUtility(String cabinetName, String jtsIP, String jtsPort, String smsPort, String queueId,
+			int sleepIntervalTime, int integrationWaitTime, String sessionID,
+			HashMap<String, String> socketDetailsMap) {
+		try {
+			sessionID = CommonConnection.getSessionID(NBTLCBSLog.NBTLCBSLogger, false);
+
+			if (sessionID == null || sessionID.equalsIgnoreCase("") || sessionID.equalsIgnoreCase("null")) {
+				NBTLCBSLog.NBTLCBSLogger.error("Could Not Get Session ID " + sessionID);
+				return;
+			}
+
+			NBTLCBSLog.NBTLCBSLogger.debug("Fetching all Workitems at core system update queue");
+			System.out.println("Fetching all WIs at core system update");
+
+			String fetchWorkitemListInputXML = CommonMethods.fetchWorkItemsInput(cabinetName, sessionID, queueId);
+			NBTLCBSLog.NBTLCBSLogger.debug("Input XML for fetch WIs " + fetchWorkitemListInputXML);
+
+			String fetchWorkitemListOutputXML = WFNGExecute(fetchWorkitemListInputXML, jtsIP, jtsPort, 1);
+			NBTLCBSLog.NBTLCBSLogger.debug("Fetch WIs output XML is " + fetchWorkitemListOutputXML);
+
+			XMLParser xmlParserFetchWorkItemlist = new XMLParser(fetchWorkitemListOutputXML);
+
+			String fetchWorkItemListMainCode = xmlParserFetchWorkItemlist.getValueOf("MainCode");
+			NBTLCBSLog.NBTLCBSLogger.debug("Fetch WIs list main code is " + fetchWorkItemListMainCode);
+
+			int fetchWorkitemListCount = Integer.parseInt(xmlParserFetchWorkItemlist.getValueOf("RetrievedCount"));
+
+			NBTLCBSLog.NBTLCBSLogger.debug("No of records retreived in fetchWI " + fetchWorkitemListCount);
+
+			if (fetchWorkItemListMainCode.trim().equals("0") && fetchWorkitemListCount > 0) {
+				for (int i = 0; i < fetchWorkitemListCount; i++) {
+					String fetchWorkItemlistData = xmlParserFetchWorkItemlist.getNextValueOf("Instrument");
+					fetchWorkItemlistData = fetchWorkItemlistData.replaceAll("[ ]+>", ">").replaceAll("<[ ]+", "<");
+
+					NBTLCBSLog.NBTLCBSLogger
+							.debug("Parsing <Instrument> in WMFetchWorkList OutputXML: " + fetchWorkItemlistData);
+					XMLParser xmlParserfetchWorkItemData = new XMLParser(fetchWorkItemlistData);
+
+					String processInstanceID = xmlParserfetchWorkItemData.getValueOf("ProcessInstanceId");
+					NBTLCBSLog.NBTLCBSLogger.debug("Current ProcessInstanceID: " + processInstanceID);
+
+					NBTLCBSLog.NBTLCBSLogger.debug("Processing Workitem: " + processInstanceID);
+					System.out.println("\nProcessing Workitem: " + processInstanceID);
+
+					String WorkItemID = xmlParserfetchWorkItemData.getValueOf("WorkItemId");
+					NBTLCBSLog.NBTLCBSLogger.debug("Current WorkItemID: " + WorkItemID);
+
+					activityName = xmlParserfetchWorkItemData.getValueOf("ActivityName");
+					NBTLCBSLog.NBTLCBSLogger.debug("Current ActivityName: " + activityName);
+
+					entryDateTime = xmlParserfetchWorkItemData.getValueOf("EntryDateTime");
+					NBTLCBSLog.NBTLCBSLogger.debug("Current EntryDateTime: " + entryDateTime);
+
+					String QueryString = "SELECT WINAME,ToBeTLNo,CorporateCIF,ToBeExpiryDate,EmailAddress,Memopad,decision,RequestType,"
+							+ "PrevOPSReviewDec,MEMO_INTEGRATION_ERROR_RECEIVED,INTEGRATION_ERROR_RECEIVED,CifUpdateSecondCall,OnlyExpiryDateChange"
+							+ " FROM " + NBTL_EXTTABLE + " with (nolock) where WINAME='" + processInstanceID + "'";
+
+					String sInputXML = CommonMethods.apSelectWithColumnNames(QueryString, cabinetName, sessionID);
+					NBTLCBSLog.NBTLCBSLogger.debug("Input XML for Apselect from Extrenal Table " + sInputXML);
+
+					String sOutputXML = NBTLCBS.WFNGExecute(sInputXML, jtsIP, jtsPort, 1);
+					NBTLCBSLog.NBTLCBSLogger.debug("Output XML for external Table select " + sOutputXML);
+
+					XMLParser sXMLParser = new XMLParser(sOutputXML);
+					String sMainCode = sXMLParser.getValueOf("MainCode");
+					NBTLCBSLog.NBTLCBSLogger.debug("SMainCode: " + sMainCode);
+
+					int sTotalRecords = Integer.parseInt(sXMLParser.getValueOf("TotalRetrieved"));
+					NBTLCBSLog.NBTLCBSLogger.debug("STotalRecords: " + sTotalRecords);
+
+					if (sMainCode.equals("0") && sTotalRecords > 0) {
+						NBTLCBSLog.NBTLCBSLogger.debug("Inside If block");
+						CustomerBean objCustBean = new CustomerBean();
+
+						String strWi_name = sXMLParser.getValueOf("winame");
+						objCustBean.setWiName(strWi_name);
+						NBTLCBSLog.NBTLCBSLogger.debug("strWi_name " + strWi_name);
+
+						String strToBeTLNo = sXMLParser.getValueOf("ToBeTLNo");
+						objCustBean.setToBeTLNo(strToBeTLNo);
+						NBTLCBSLog.NBTLCBSLogger.debug("strToBeTLNo " + strToBeTLNo);
+
+						String strCorporateCIF = sXMLParser.getValueOf("CorporateCIF");
+						objCustBean.setCorporateCIF(strCorporateCIF);
+						NBTLCBSLog.NBTLCBSLogger.debug("strCorporateCIF " + strCorporateCIF);
+
+						String strEmail = sXMLParser.getValueOf("EmailAddress");
+						objCustBean.setEmail(strEmail);
+						NBTLCBSLog.NBTLCBSLogger.debug("strEmail " + strEmail);
+
+						String MemoPadText = sXMLParser.getValueOf("Memopad");
+						objCustBean.setMemoPadText(MemoPadText);
+						NBTLCBSLog.NBTLCBSLogger.debug("MemoPadText " + MemoPadText);
+
+						String RequestType = sXMLParser.getValueOf("RequestType");
+						objCustBean.setRequestType(RequestType);
+						NBTLCBSLog.NBTLCBSLogger.debug("RequestType " + RequestType);
+
+						String OnlyExpiryDateChange = sXMLParser.getValueOf("OnlyExpiryDateChange");
+						if (OnlyExpiryDateChange == null) {
+							OnlyExpiryDateChange = "";
+						}
+						NBTLCBSLog.NBTLCBSLogger.debug("OnlyExpiryDateChange " + OnlyExpiryDateChange);
+
+						String decision = sXMLParser.getValueOf("decision");
+						if (decision == null) {
+							decision = "";
+						}
+						NBTLCBSLog.NBTLCBSLogger.debug("decision " + decision);
+
+						String PrevOPSReviewDec = sXMLParser.getValueOf("PrevOPSReviewDec");
+						if (PrevOPSReviewDec == null) {
+							PrevOPSReviewDec = "";
+						}
+						NBTLCBSLog.NBTLCBSLogger.debug("decision " + PrevOPSReviewDec);
+
+						String INTEGRATION_ERROR_RECEIVED = sXMLParser.getValueOf("INTEGRATION_ERROR_RECEIVED");
+						if (INTEGRATION_ERROR_RECEIVED == null) {
+							INTEGRATION_ERROR_RECEIVED = "";
+						}
+						NBTLCBSLog.NBTLCBSLogger.debug("INTEGRATION_ERROR_RECEIVED " + INTEGRATION_ERROR_RECEIVED);
+
+						String MEMO_INTEGRATION_ERROR_RECEIVED = sXMLParser
+								.getValueOf("MEMO_INTEGRATION_ERROR_RECEIVED");
+						if (MEMO_INTEGRATION_ERROR_RECEIVED == null) {
+							MEMO_INTEGRATION_ERROR_RECEIVED = "";
+						}
+						NBTLCBSLog.NBTLCBSLogger
+								.debug("MEMO_INTEGRATION_ERROR_RECEIVED " + MEMO_INTEGRATION_ERROR_RECEIVED);
+
+						String CifUpdateSecondCall = sXMLParser.getValueOf("CifUpdateSecondCall");
+						if (CifUpdateSecondCall == null) {
+							CifUpdateSecondCall = "";
+						}
+						NBTLCBSLog.NBTLCBSLogger.debug("CifUpdateSecondCall " + CifUpdateSecondCall);
+
+						SimpleDateFormat outputdateFormat = new SimpleDateFormat("yyyy-MM-dd");
+						Date d = outputdateFormat.parse(sXMLParser.getValueOf("ToBeExpiryDate"));
+						String strToBeExpiryDate = outputdateFormat.format(d);
+						int year = Integer.parseInt(strToBeExpiryDate.substring(0, 4));
+						objCustBean.setToBeExpiryDate(strToBeExpiryDate);
+						NBTLCBSLog.NBTLCBSLogger.debug("strToBeExpiryDate " + strToBeExpiryDate);
+						NBTLCBSLog.NBTLCBSLogger.debug("year " + year);
+
+						NBTLCBSLog.NBTLCBSLogger.debug("objCustBean.getWiName() " + objCustBean.getWiName());
+						NBTLCBSLog.NBTLCBSLogger
+								.debug("objCustBean.getCorporate_CIF() " + objCustBean.getCorporateCIF());
+
+						Date date = new Date();
+						String KYC_ReviewDate = outputdateFormat.format(date);
+
+						if (("STP_Approved".equalsIgnoreCase(PrevOPSReviewDec)
+								|| "Approve".equalsIgnoreCase(PrevOPSReviewDec))
+								&& !"Success".equalsIgnoreCase(INTEGRATION_ERROR_RECEIVED)) {
+							ResponseBean objResponseBean = objNBTLCBSIntegration.NBTLCBS_CifUpdateIntegration(
+									cabinetName, sessionID, jtsIP, jtsPort, smsPort, processInstanceID,
+									sleepIntervalTime, integrationWaitTime, strCorporateCIF, strToBeTLNo,
+									strToBeExpiryDate, KYC_ReviewDate, INTEGRATION_ERROR_RECEIVED, socketDetailsMap,
+									strWi_name, activityName, ThresholdYear, year, RequestType);
+							NBTLCBSLog.NBTLCBSLogger.error("objResponseBean.getCifUpdateReturnCode() "
+									+ objResponseBean.getCifUpdateReturnCode());
+							if ("Success".equals(objResponseBean.getCifUpdateReturnCode())) {
+								strIntegrationErrCode = "Success";
+								strIntegrationErrRemarks = "Cif Update Successfull";
+							} else if ("CIF_UnderVerification".equals(objResponseBean.getCifUpdateReturnCode())) {
+								strIntegrationErrCode = "Failure";
+								strIntegrationErrRemarks = "CIF UNDER VERIFICATION";
+							} else {
+								strIntegrationErrCode = "Failure";
+								strIntegrationErrRemarks = "Error in Cif Update";
+							}
+							NBTLCBSLog.NBTLCBSLogger.debug("objResponseBean.getIntegrationDecision() "
+									+ objResponseBean.getIntegrationDecision());
+							NBTLCBSLog.NBTLCBSLogger.debug("strIntegrationErrCode " + strIntegrationErrCode);
+
+							attributesTag = "<Decision>" + strIntegrationErrCode + "</Decision>" + "<Remarks>"
+									+ strIntegrationErrRemarks + "</Remarks>" + "<INTEGRATION_ERROR_RECEIVED>"
+									+ strIntegrationErrCode + "</INTEGRATION_ERROR_RECEIVED>";
+
+							DoneWI(cabinetName, jtsIP, jtsPort, smsPort, queueId, sleepIntervalTime,
+									integrationWaitTime, sessionID, processInstanceID, WorkItemID,
+									strIntegrationErrCode, strIntegrationErrRemarks, attributesTag, RequestType);
+
+						} else if ("Approve with Profile Change".equalsIgnoreCase(PrevOPSReviewDec)
+								&& (!"Success".equalsIgnoreCase(MEMO_INTEGRATION_ERROR_RECEIVED)
+										|| !"Success".equalsIgnoreCase(INTEGRATION_ERROR_RECEIVED))) {
+							if (!"Success".equalsIgnoreCase(MEMO_INTEGRATION_ERROR_RECEIVED)) {
+								ResponseBean objResponseBean = objNBTLCBSIntegration.NBTL_Memopad_Integration(
+										cabinetName, sessionID, jtsIP, jtsPort, smsPort, processInstanceID,
+										sleepIntervalTime, integrationWaitTime, strCorporateCIF, MemoPadText,
+										socketDetailsMap, activityName);
+								NBTLCBSLog.NBTLCBSLogger.debug("objResponseBean.getMemopadReturnCode() "
+										+ objResponseBean.getMemopadReturnCode());
+								if (!"Success".equals(objResponseBean.getMemopadReturnCode())) {
+									strIntegrationErrCode = "Failure";
+									strIntegrationErrRemarks = "Error in Memopad Utility";
+									attributesTag = "<Decision>" + strIntegrationErrCode + "</Decision>" + "<Remarks>"
+											+ strIntegrationErrRemarks + "</Remarks>"
+											+ "<MEMO_INTEGRATION_ERROR_RECEIVED>" + strIntegrationErrCode
+											+ "</MEMO_INTEGRATION_ERROR_RECEIVED>";
+									NBTLCBSLog.NBTLCBSLogger.debug("objResponseBean.getIntegrationDecision() "
+											+ objResponseBean.getMemoIntegrationDecision());
+									NBTLCBSLog.NBTLCBSLogger.debug("strIntegrationErrCode " + strIntegrationErrCode);
+									DoneWI(cabinetName, jtsIP, jtsPort, smsPort, queueId, sleepIntervalTime,
+											integrationWaitTime, sessionID, processInstanceID, WorkItemID,
+											strIntegrationErrCode, strIntegrationErrRemarks, attributesTag,
+											RequestType);
+									continue;
+								} else {
+									strIntegrationErrCode = "Success";
+									strIntegrationErrRemarks = "Memopad Integration Successfull";
+									NBTLCBSLog.NBTLCBSLogger.debug("objResponseBean.getIntegrationDecision() "
+											+ objResponseBean.getMemoIntegrationDecision());
+									NBTLCBSLog.NBTLCBSLogger.debug("strIntegrationErrCode " + strIntegrationErrCode);
+									String columnNames = "Decision,Remarks,MEMO_INTEGRATION_ERROR_RECEIVED";
+									String columnValues = "'" + strIntegrationErrCode + "','" + strIntegrationErrRemarks
+											+ "','" + strIntegrationErrCode + "'";
+									String sWhereClause = "WINAME ='" + strWi_name + "' ";
+									String apUpdateInput = CommonMethods.apUpdateInput(cabinetName, sessionID,
+											NBTL_EXTTABLE, columnNames, columnValues, sWhereClause);
+									NBTLCBSLog.NBTLCBSLogger.debug("APUpdate InputXML: " + apUpdateInput);
+
+									String apUpdateOutputXML = WFNGExecute(apUpdateInput, jtsIP, jtsPort, 1);
+									NBTLCBSLog.NBTLCBSLogger.debug("APUpdate OutputXML: " + apUpdateOutputXML);
+
+									XMLParser apUpdateOutputXMLxmlParser = new XMLParser(apUpdateOutputXML);
+									String apUpdateOutputXMLMainCode = apUpdateOutputXMLxmlParser
+											.getValueOf("MainCode");
+									NBTLCBSLog.NBTLCBSLogger.debug("MainCode: " + apUpdateOutputXMLMainCode);
+
+									if (apUpdateOutputXMLMainCode.equalsIgnoreCase("0")) {
+										NBTLCBSLog.NBTLCBSLogger.debug("Last Memopad status updated in database");
+										// inserting into history table
+										SimpleDateFormat inputDateformat = new SimpleDateFormat("yyyy-MM-dd hh:mm:ss");
+										SimpleDateFormat outputDateFormat = new SimpleDateFormat("yyyy-MM-dd hh:mm:ss");
+
+										Date actionDateTime = new Date();
+										String formattedActionDateTime = outputDateFormat.format(actionDateTime);
+										NBTLCBSLog.NBTLCBSLogger
+												.debug("FormattedActionDateTime: " + formattedActionDateTime);
+
+										// Insert in WIHistory Table.
+										String columnNames1 = "WINAME,ACTION_DATE_TIME,WORKSTEP,USER_NAME,DECISION,REMARKS";
+										String columnValues1 = "'" + processInstanceID + "','" + formattedActionDateTime
+												+ "','" + ws_name + "','" + CommonConnection.getUsername() + "','"
+												+ strIntegrationErrCode + "','" + strIntegrationErrRemarks + "'";
+
+										String apInsertInputXML = CommonMethods.apInsert(cabinetName, sessionID,
+												columnNames1, columnValues1, NBTL_WIHISTORY);
+										NBTLCBSLog.NBTLCBSLogger.debug("APInsertInputXML: " + apInsertInputXML);
+
+										String apInsertOutputXML = WFNGExecute(apInsertInputXML, jtsIP, jtsPort, 1);
+										NBTLCBSLog.NBTLCBSLogger.debug("APInsertOutputXML: " + apInsertOutputXML);
+
+										XMLParser xmlParserAPInsert = new XMLParser(apInsertOutputXML);
+										String apInsertMaincode = xmlParserAPInsert.getValueOf("MainCode");
+										NBTLCBSLog.NBTLCBSLogger
+												.debug("Status of apInsertMaincode  " + apInsertMaincode);
+										if (apInsertMaincode.equalsIgnoreCase("0")) {
+											NBTLCBSLog.NBTLCBSLogger.debug("ApInsert successful: " + apInsertMaincode);
+											NBTLCBSLog.NBTLCBSLogger.debug("Inserted in WiHistory table successfully.");
+										} else {
+											NBTLCBSLog.NBTLCBSLogger.error("ApInsert failed: " + apInsertMaincode);
+										}
+									}
+								}
+							}
+							if (!"Success".equalsIgnoreCase(INTEGRATION_ERROR_RECEIVED)) {
+								ResponseBean objResponseBean1 = objNBTLCBSIntegration.NBTLCBS_CifUpdateIntegration(
+										cabinetName, sessionID, jtsIP, jtsPort, smsPort, processInstanceID,
+										sleepIntervalTime, integrationWaitTime, strCorporateCIF, strToBeTLNo,
+										strToBeExpiryDate, KYC_ReviewDate, INTEGRATION_ERROR_RECEIVED, socketDetailsMap,
+										strWi_name, activityName, ThresholdYear, year, PrevOPSReviewDec);
+
+								if ("Success".equals(objResponseBean1.getCifUpdateReturnCode())) {
+									strIntegrationErrCode = "Success";
+									strIntegrationErrRemarks = "Cif Update Successfull";
+								} else if ("CIF_UnderVerification".equals(objResponseBean1.getCifUpdateReturnCode())) {
+									strIntegrationErrCode = "Failure";
+									strIntegrationErrRemarks = "CIF UNDER VERIFICATION";
+								} else {
+									strIntegrationErrCode = "Failure";
+									strIntegrationErrRemarks = "Error in Cif Update";
+								}
+								NBTLCBSLog.NBTLCBSLogger.debug("objResponseBean.getIntegrationDecision() "
+										+ objResponseBean1.getIntegrationDecision());
+								NBTLCBSLog.NBTLCBSLogger.debug("strIntegrationErrCode " + strIntegrationErrCode);
+
+								attributesTag = "<Decision>" + strIntegrationErrCode + "</Decision>" + "<Remarks>"
+										+ strIntegrationErrRemarks + "</Remarks>" + "<INTEGRATION_ERROR_RECEIVED>"
+										+ strIntegrationErrCode + "</INTEGRATION_ERROR_RECEIVED>";
+
+								DoneWI(cabinetName, jtsIP, jtsPort, smsPort, queueId, sleepIntervalTime,
+										integrationWaitTime, sessionID, processInstanceID, WorkItemID,
+										strIntegrationErrCode, strIntegrationErrRemarks, attributesTag, RequestType);
+
+							}
+						} else // means required calls are success
+						{
+							strIntegrationErrCode = "Success";
+							strIntegrationErrRemarks = "Cif Update Successfull";
+							attributesTag = "<Decision>" + strIntegrationErrCode + "</Decision>";
+							DoneWI(cabinetName, jtsIP, jtsPort, smsPort, queueId, sleepIntervalTime,
+									integrationWaitTime, sessionID, processInstanceID, WorkItemID,
+									strIntegrationErrCode, strIntegrationErrRemarks, attributesTag, RequestType);
+
+						}
+
+					}
+				}
+
+			}
+		} catch (Exception e) {
+			NBTLCBSLog.NBTLCBSLogger.error("Exception " + e);
+			final Writer result = new StringWriter();
+			final PrintWriter printWriter = new PrintWriter(result);
+			e.printStackTrace(printWriter);
+			NBTLCBSLog.NBTLCBSLogger.error("Exception Occurred in NBTL CBS Thread : " + result);
+			System.out.println("Exception " + e);
+
+		}
+	}
+
+	public static String WFNGExecute(String ipXML, String jtsServerIP, String serverPort, int flag)
+			throws IOException, Exception {
+		NBTLCBSLog.NBTLCBSLogger.debug("In WF NG Execute : " + serverPort);
+		try {
+			if (serverPort.startsWith("33"))
+				return WFCallBroker.execute(ipXML, jtsServerIP, Integer.parseInt(serverPort), 1);
+			else
+				return ngEjbClientNBTLCBS.makeCall(jtsServerIP, serverPort, "WebSphere", ipXML);
+		} catch (Exception e) {
+			NBTLCBSLog.NBTLCBSLogger.error("Exception Occured in WF NG Execute : " + e.getMessage());
+			e.printStackTrace();
+			return "Error";
+		}
+	}
+
+	public static HashMap<String, String> socketConnectionDetails(String cabinetName, String sJtsIp, String iJtsPort,
+			String sessionID) {
+		HashMap<String, String> socketDetailsMap = new HashMap<String, String>();
+
+		try {
+			ngEjbClientNBTLCBS = NGEjbClient.getSharedInstance();
+			NBTLCBSLog.NBTLCBSLogger.debug("Fetching Socket Connection Details.");
+			System.out.println("Fetching Socket Connection Details.");
+
+			String socketDetailsQuery = "SELECT SocketServerIP,SocketServerPort FROM NG_BPM_MQ_TABLE with (nolock) where ProcessName = 'NBTL' and CallingSource = 'Utility'";
+
+			String socketDetailsInputXML = CommonMethods.apSelectWithColumnNames(socketDetailsQuery, cabinetName,
+					sessionID);
+			NBTLCBSLog.NBTLCBSLogger.debug("Socket Details APSelect InputXML: " + socketDetailsInputXML);
+
+			String socketDetailsOutputXML = WFNGExecute(socketDetailsInputXML, sJtsIp, iJtsPort, 1);
+			NBTLCBSLog.NBTLCBSLogger.debug("Socket Details APSelect OutputXML: " + socketDetailsOutputXML);
+
+			XMLParser xmlParserSocketDetails = new XMLParser(socketDetailsOutputXML);
+			String socketDetailsMainCode = xmlParserSocketDetails.getValueOf("MainCode");
+			NBTLCBSLog.NBTLCBSLogger.debug("SocketDetailsMainCode: " + socketDetailsMainCode);
+
+			int socketDetailsTotalRecords = Integer.parseInt(xmlParserSocketDetails.getValueOf("TotalRetrieved"));
+			NBTLCBSLog.NBTLCBSLogger.debug("SocketDetailsTotalRecords: " + socketDetailsTotalRecords);
+
+			if (socketDetailsMainCode.equalsIgnoreCase("0") && socketDetailsTotalRecords > 0) {
+				String xmlDataSocketDetails = xmlParserSocketDetails.getNextValueOf("Record");
+				xmlDataSocketDetails = xmlDataSocketDetails.replaceAll("[ ]+>", ">").replaceAll("<[ ]+", "<");
+
+				XMLParser xmlParserSocketDetailsRecord = new XMLParser(xmlDataSocketDetails);
+
+				String socketServerIP = xmlParserSocketDetailsRecord.getValueOf("SocketServerIP");
+				NBTLCBSLog.NBTLCBSLogger.debug("SocketServerIP: " + socketServerIP);
+				socketDetailsMap.put("SocketServerIP", socketServerIP);
+
+				String socketServerPort = xmlParserSocketDetailsRecord.getValueOf("SocketServerPort");
+				NBTLCBSLog.NBTLCBSLogger.debug("SocketServerPort " + socketServerPort);
+				socketDetailsMap.put("SocketServerPort", socketServerPort);
+
+				NBTLCBSLog.NBTLCBSLogger.debug("SocketServer Details found.");
+				System.out.println("SocketServer Details found.");
+
+			}
+		} catch (Exception e) {
+			NBTLCBSLog.NBTLCBSLogger.error("Exception in getting Socket Connection Details: " + e.getMessage());
+			System.out.println("Exception in getting Socket Connection Details: " + e.getMessage());
+		}
+
+		return socketDetailsMap;
+	}
+
+	private void DoneWI(String cabinetName, String jtsIP, String jtsPort, String smsPort, String queueId,
+			int sleepIntervalTime, int integrationWaitTime, String sessionID, String processInstanceID,
+			String WorkItemID, String Decision, String Remarks, String attributesTag, String RequestType)
+			throws IOException, Exception {
+		getWorkItemInputXML = CommonMethods.getWorkItemInput(cabinetName, sessionID, processInstanceID, WorkItemID);
+		getWorkItemOutputXml = WFNGExecute(getWorkItemInputXML, jtsIP, jtsPort, 1);
+
+		NBTLCBSLog.NBTLCBSLogger.debug("Output XML for getWorkItem is " + getWorkItemOutputXml);
+
+		xmlParserGetWorkItem = new XMLParser(getWorkItemOutputXml);
+		getWorkItemMainCode = xmlParserGetWorkItem.getValueOf("MainCode");
+
+		if ("0".equals(getWorkItemMainCode)) {
+			NBTLCBSLog.NBTLCBSLogger.info("get Workitem call successfull for " + processInstanceID);
+
+			String assignWorkitemAttributeInputXML = CommonMethods.assignWorkitemAttributeInput(cabinetName, sessionID,
+					processInstanceID, WorkItemID, attributesTag);
+			NBTLCBSLog.NBTLCBSLogger.debug("Input XML for assign Attribute is " + assignWorkitemAttributeInputXML);
+
+			String assignWorkitemAttributeOutputXML = WFNGExecute(assignWorkitemAttributeInputXML, jtsIP, jtsPort, 1);
+			NBTLCBSLog.NBTLCBSLogger.debug("Output XML for assign Attribues is " + assignWorkitemAttributeOutputXML);
+
+			XMLParser xmlParserAssignAtt = new XMLParser(assignWorkitemAttributeOutputXML);
+
+			String mainCodeAssignAtt = xmlParserAssignAtt.getValueOf("MainCode");
+			if ("0".equals(mainCodeAssignAtt.trim())) {
+				String completeWorkItemInputXML = CommonMethods.completeWorkItemInput(cabinetName, sessionID,
+						processInstanceID, WorkItemID);
+
+				NBTLCBSLog.NBTLCBSLogger.debug("Input XML for complete WI is " + completeWorkItemInputXML);
+
+				NBTLCBSLog.NBTLCBSLogger.debug("Input XML for wmcompleteWorkItem: " + completeWorkItemInputXML);
+
+				String completeWorkItemOutputXML = WFNGExecute(completeWorkItemInputXML, jtsIP, jtsPort, 1);
+				NBTLCBSLog.NBTLCBSLogger.debug("Output XML for wmcompleteWorkItem: " + completeWorkItemOutputXML);
+
+				XMLParser xmlParserCompleteWorkitem = new XMLParser(completeWorkItemOutputXML);
+				String completeWorkitemMaincode = xmlParserCompleteWorkitem.getValueOf("MainCode");
+				NBTLCBSLog.NBTLCBSLogger.debug("Status of wmcompleteWorkItem  " + completeWorkitemMaincode);
+
+				if ("0".equals(completeWorkitemMaincode)) {
+					// inserting into history table
+					NBTLCBSLog.NBTLCBSLogger.debug("WmCompleteWorkItem successful: " + completeWorkitemMaincode);
+					System.out.println(processInstanceID + "Complete Succesfully with status ");
+
+					NBTLCBSLog.NBTLCBSLogger.debug("WorkItem moved to next Workstep.");
+
+					SimpleDateFormat inputDateformat = new SimpleDateFormat("yyyy-MM-dd hh:mm:ss");
+					SimpleDateFormat outputDateFormat = new SimpleDateFormat("yyyy-MM-dd hh:mm:ss");
+
+					Date entryDatetimeFormat = inputDateformat.parse(entryDateTime);
+					String formattedEntryDatetime = outputDateFormat.format(entryDatetimeFormat);
+					NBTLCBSLog.NBTLCBSLogger.debug("FormattedEntryDatetime: " + formattedEntryDatetime);
+
+					Date actionDateTime = new Date();
+					String formattedActionDateTime = outputDateFormat.format(actionDateTime);
+					NBTLCBSLog.NBTLCBSLogger.debug("FormattedActionDateTime: " + formattedActionDateTime);
+
+					// Insert in WIHistory Table.
+					String columnNames = "WINAME,ACTION_DATE_TIME,WORKSTEP,USER_NAME,DECISION,ENTRY_DATE_TIME,REMARKS";
+					String columnValues = "'" + processInstanceID + "','" + formattedActionDateTime + "','" + ws_name
+							+ "','" + CommonConnection.getUsername() + "','" + Decision + "','" + formattedEntryDatetime
+							+ "','" + Remarks + "'";
+
+					String apInsertInputXML = CommonMethods.apInsert(cabinetName, sessionID, columnNames, columnValues,
+							NBTL_WIHISTORY);
+					NBTLCBSLog.NBTLCBSLogger.debug("APInsertInputXML: " + apInsertInputXML);
+
+					String apInsertOutputXML = WFNGExecute(apInsertInputXML, jtsIP, jtsPort, 1);
+					NBTLCBSLog.NBTLCBSLogger.debug("APInsertOutputXML: " + apInsertOutputXML);
+
+					XMLParser xmlParserAPInsert = new XMLParser(apInsertOutputXML);
+					String apInsertMaincode = xmlParserAPInsert.getValueOf("MainCode");
+					NBTLCBSLog.NBTLCBSLogger.debug("Status of apInsertMaincode  " + apInsertMaincode);
+					if (apInsertMaincode.equalsIgnoreCase("0")) {
+						NBTLCBSLog.NBTLCBSLogger.debug("ApInsert successful: " + apInsertMaincode);
+						NBTLCBSLog.NBTLCBSLogger.debug("Inserted in WiHistory table successfully.");
+						// call..to do for STP only
+						if ("STP".equalsIgnoreCase(RequestType)) {
+							sendCommunication(processInstanceID, cabinetName, sessionID, jtsIP, jtsPort);
+						}
+					} else {
+						NBTLCBSLog.NBTLCBSLogger.error("ApInsert failed: " + apInsertMaincode);
+					}
+				} else {
+					NBTLCBSLog.NBTLCBSLogger.error("Error in completeWI call for " + processInstanceID);
+				}
+			} else {
+				NBTLCBSLog.NBTLCBSLogger.error("Error in Assign Attribute call for WI " + processInstanceID);
+			}
+
+		} else {
+			NBTLCBSLog.NBTLCBSLogger.error("Error in getWI call for WI " + processInstanceID);
+		}
+	}
+
+	private String sendEmail(String processInstanceID, String mailTo, String cabinetName, String sessionID,
+			String jtsIP, String jtsPort) {
+		try {
+
+			int mailPriority = 1;
+			String mailStatus = "N";
+			String UserNAme = "rakbpm";
+			String mailActionType = "TRIGGER";
+			String mailContentType = "text/html;charset=UTF-8";
+			String wiName = processInstanceID;
+			int workitemid = 1;
+			int activityID = 3;
+			int noOfTrials = 0;
+
+			String query = "select * from USR_0_NBTL_TemplateMapping where TemplateType = 'Approved'";
+
+			String apSelectInputXML = CommonMethods.apSelectWithColumnNames(query, cabinetName, sessionID);
+			NBTLCBSLog.NBTLCBSLogger.debug("Socket Details APSelect InputXML: " + apSelectInputXML);
+
+			String apSelectOutputXML = WFNGExecute(apSelectInputXML, jtsIP, jtsPort, 1);
+			NBTLCBSLog.NBTLCBSLogger.debug("Socket Details APSelect OutputXML: " + apSelectOutputXML);
+
+			XMLParser xmlParser = new XMLParser(apSelectOutputXML);
+			String MainCode = xmlParser.getValueOf("MainCode");
+			NBTLCBSLog.NBTLCBSLogger.debug("MainCode: " + MainCode);
+
+			int TotalRecords = Integer.parseInt(xmlParser.getValueOf("TotalRetrieved"));
+			NBTLCBSLog.NBTLCBSLogger.debug("TotalRecords: " + TotalRecords);
+
+			if (MainCode.equalsIgnoreCase("0") && TotalRecords > 0) {
+				mailSubject = xmlParser.getValueOf("MailSubject");
+				NBTLCBSLog.NBTLCBSLogger.debug("mailSubject: " + mailSubject);
+
+				mailFrom = xmlParser.getValueOf("FromMail");
+				NBTLCBSLog.NBTLCBSLogger.debug("mailFrom: " + mailFrom);
+
+				emailBody = xmlParser.getValueOf("MailTemplate");
+				NBTLCBSLog.NBTLCBSLogger.debug("emailBody: " + emailBody);
+			}
+			emailBody = emailBody.replaceAll("#WI_No#", wiName);
+			mailSubject = mailSubject.replaceAll("#WI_No#", wiName);
+
+			String tableName = "WFMAILQUEUETABLE";
+			String columnName = "mailFrom,mailTo,mailSubject,mailMessage,mailContentType,mailPriority,mailStatus,insertedBy,"
+					+ "mailActionType,processInstanceId,workitemId,activityId,noOfTrials";
+			String values = "'" + mailFrom + "','" + mailTo + "','" + mailSubject + "',N'" + emailBody + "','"
+					+ mailContentType + "','" + mailPriority + "','" + mailStatus + "','"
+					+ CommonConnection.getUsername() + "','" + mailActionType + "','" + wiName + "','" + workitemid
+					+ "','" + activityID + "','" + noOfTrials + "'";
+			String mailInsertQuery = "Insert into " + tableName + " " + columnName + " values " + values;
+
+			String apInsertInputXML = CommonMethods.apInsert(cabinetName, sessionID, columnName, values, tableName);
+			NBTLCBSLog.NBTLCBSLogger.debug("APInsertInputXML: " + apInsertInputXML);
+
+			String apInsertOutputXML = WFNGExecute(apInsertInputXML, jtsIP, jtsPort, 1);
+			NBTLCBSLog.NBTLCBSLogger.debug("APInsertOutputXML: " + apInsertOutputXML);
+
+			XMLParser xmlParserAPInsert = new XMLParser(apInsertOutputXML);
+			String apInsertMaincode = xmlParserAPInsert.getValueOf("MainCode");
+			NBTLCBSLog.NBTLCBSLogger.debug("Status of apInsertMaincode  " + apInsertMaincode);
+			if (apInsertMaincode.equalsIgnoreCase("0")) {
+				NBTLCBSLog.NBTLCBSLogger.debug("ApInsert successful: " + apInsertMaincode);
+				NBTLCBSLog.NBTLCBSLogger.debug("Mail sent successfully.");
+				return "true";
+			}
+		} catch (Exception e) {
+
+		}
+		return "false";
+	}
+
+	private String sendSMS(String processInstanceID, String MobileNumber, String cabinetName, String sessionID,
+			String jtsIP, String jtsPort) {
+		try {
+
+			String AlertName = "STP_Approved";
+			String AlertCode = "NBTL";
+			String AlertStatus = "P";
+			String AlertSubject = "Communication";
+			String txtMessage = "";
+
+			String query = "select * from USR_0_NBTL_TemplateMapping where TemplateType = 'Approved'";
+
+			String apSelectInputXML = CommonMethods.apSelectWithColumnNames(query, cabinetName, sessionID);
+			NBTLCBSLog.NBTLCBSLogger.debug("SMS APSelect InputXML: " + apSelectInputXML);
+
+			String apSelectOutputXML = WFNGExecute(apSelectInputXML, jtsIP, jtsPort, 1);
+			NBTLCBSLog.NBTLCBSLogger.debug("SMS APSelect OutputXML: " + apSelectOutputXML);
+
+			XMLParser xmlParser = new XMLParser(apSelectOutputXML);
+			String MainCode = xmlParser.getValueOf("MainCode");
+			NBTLCBSLog.NBTLCBSLogger.debug("MainCode: " + MainCode);
+
+			int TotalRecords = Integer.parseInt(xmlParser.getValueOf("TotalRetrieved"));
+			NBTLCBSLog.NBTLCBSLogger.debug("TotalRecords: " + TotalRecords);
+
+			if (MainCode.equalsIgnoreCase("0") && TotalRecords > 0) {
+				txtMessage = xmlParser.getValueOf("SMStxtTemplate");
+				NBTLCBSLog.NBTLCBSLogger.debug("txtMessage: " + txtMessage);
+
+			}
+			txtMessage = txtMessage.replaceAll("#WI_No#", processInstanceID);
+
+			String tableName = "USR_0_BPM_SMSQUEUETABLE";
+			String columnName = "ALERT_Name,Alert_Code,Alert_Status,Mobile_No,Alert_Text,Alert_Subject,WI_Name,Workstep_Name,Inserted_Date";
+			String values = "'" + AlertName + "','" + AlertCode + "','" + AlertStatus + "','" + MobileNumber + "','"
+					+ txtMessage + "','" + AlertSubject + "','" + processInstanceID + "','" + activityName
+					+ "',getdate() ";
+
+			String apInsertInputXML = CommonMethods.apInsert(cabinetName, sessionID, columnName, values, tableName);
+			NBTLCBSLog.NBTLCBSLogger.debug("APInsertInputXML: " + apInsertInputXML);
+
+			String apInsertOutputXML = WFNGExecute(apInsertInputXML, jtsIP, jtsPort, 1);
+			NBTLCBSLog.NBTLCBSLogger.debug("APInsertOutputXML: " + apInsertOutputXML);
+
+			XMLParser xmlParserAPInsert = new XMLParser(apInsertOutputXML);
+			String apInsertMaincode = xmlParserAPInsert.getValueOf("MainCode");
+			NBTLCBSLog.NBTLCBSLogger.debug("Status of apInsertMaincode  " + apInsertMaincode);
+			if (apInsertMaincode.equalsIgnoreCase("0")) {
+				NBTLCBSLog.NBTLCBSLogger.debug("ApInsert successful: " + apInsertMaincode);
+				NBTLCBSLog.NBTLCBSLogger.debug("SMS sent successfully.");
+				return "true";
+			}
+		} catch (Exception e) {
+			NBTLCBSLog.NBTLCBSLogger.debug("Exception in sending SMS----" + e);
+		}
+		return "false";
+	}
+
+	private String sendCommunication(String processInstanceID, String cabinetName, String sessionID, String jtsIP,
+			String jtsPort) {
+		try {
+			String query = "select EmailAddress,mobileNo from RB_NBTL_EXTTABLE where WINAME = '" + processInstanceID
+					+ "'";
+
+			String apSelectInputXML = CommonMethods.apSelectWithColumnNames(query, cabinetName, sessionID);
+			NBTLCBSLog.NBTLCBSLogger.debug("Socket Details APSelect InputXML: " + apSelectInputXML);
+
+			String apSelectOutputXML = WFNGExecute(apSelectInputXML, jtsIP, jtsPort, 1);
+			NBTLCBSLog.NBTLCBSLogger.debug("Socket Details APSelect OutputXML: " + apSelectOutputXML);
+
+			XMLParser xmlParser = new XMLParser(apSelectOutputXML);
+			String MainCode = xmlParser.getValueOf("MainCode");
+			NBTLCBSLog.NBTLCBSLogger.debug("MainCode: " + MainCode);
+
+			int TotalRecords = Integer.parseInt(xmlParser.getValueOf("TotalRetrieved"));
+			NBTLCBSLog.NBTLCBSLogger.debug("TotalRecords: " + TotalRecords);
+
+			String mailTo = "";
+			String mobileNo = "";
+			if (MainCode.equalsIgnoreCase("0") && TotalRecords > 0) {
+				mailTo = xmlParser.getValueOf("EmailAddress");
+				NBTLCBSLog.NBTLCBSLogger.debug("mailTo: " + mailTo);
+
+				mobileNo = xmlParser.getValueOf("MobileNo");
+				NBTLCBSLog.NBTLCBSLogger.debug("mobileNo: " + mobileNo);
+
+			}
+			String res = sendEmail(processInstanceID, mailTo, cabinetName, sessionID, jtsIP, jtsPort);
+			String SMSres = sendSMS(processInstanceID, mobileNo, cabinetName, sessionID, jtsIP, jtsPort);
+			NBTLCBSLog.NBTLCBSLogger.debug("Mail Send Status " + res);
+			NBTLCBSLog.NBTLCBSLogger.debug("Sms Send Status: " + SMSres);
+		} catch (Exception e) {
+			NBTLCBSLog.NBTLCBSLogger.debug("Exception occured in sendCommunication: " + e);
+		}
+		return "";
+	}
+
+}
